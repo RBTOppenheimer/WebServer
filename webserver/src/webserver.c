@@ -72,10 +72,10 @@ void respondToRequest(int n)
 {
 	char request[99999];
 	char dataToSend[1024], path[1024];
-	char * token = NULL;
+	char * token[3];
 	int rcvd, fd, noBytes;
 
-	memset( (void*)request, (int)'\0', 99999 );
+
 	rcvd=recv(clients[n], request, 99999, 0);
 
 	// Recieve Error
@@ -89,43 +89,44 @@ void respondToRequest(int n)
 	else
 	{
 		printf(request);
-		token = strtok (request, " ");
-		int token_counter = 0;
-	    while (token != NULL)
-	    {
-	        printf ("%s\n",token);
-	        if (token_counter == 0)
-	        {
-	            if (strcmp(token, "GET") == 0)
-	            {
-            		printf("Success");
+		token[0] = strtok (request, " ");
+		if ( strncmp(token[0], "GET\0", 4)==0 )
+		{
+			token[1] = strtok (NULL, " \t");
+			token[2] = strtok (NULL, " \t\n");
+			if (strncmp( token[2], "HTTP/1.0", 8) != 0 && strncmp( token[2], "HTTP/1.1", 8) != 0)
+			{
+				write(clients[n], "HTTP/1.0 400 Bad Request	t\n", 25);
+			}
+			else
+			{
+				// If it is empty, then serve the default file
+				if ( strncmp(token[1], "/\0", 2)==0 )
+					token[1] = "/index.html";
 
-	            	if ( (fd=open(path, O_RDONLY))!=-1 )    //FILE FOUND
-					{
-	            		printf("Success");
-						send(clients[n], "HTTP/1.0 200 OK\n\n", 17, 0);
-						while ((noBytes = read(fd, dataToSend, 1024)) > 0)
-							write (clients[n], dataToSend, noBytes);
-					}
-					else
-						write(clients[n], "HTTP/1.0 404 Not Found\n", 23); //FILE NOT FOUND
-	            }
-	            else
-	            {
-	            	printf("SUC");
-	    			write(clients[n],"HTTP/1.0 501 Not Implemented\n",30);
-	            }
-	        }
-	        else if (token_counter == 1)
-	        {
-	        	strcpy(path, SERVER_ROOT);
-				strcpy(&path[strlen(SERVER_ROOT)],token);
+				strcpy(path, SERVER_ROOT);
+				strcpy(&path[strlen(SERVER_ROOT)],"index.html");
 				printf("file: %s\n", path);
-	        }
-	        token = strtok(NULL, " ");
-	        token_counter++;
-	    }
+
+
+				// FILE FOUND
+				if ((fd=open(path, O_RDONLY))!= -1 )
+				{
+					send(clients[n], "HTTP/1.0 200 OK\n\n", 17, 0);
+					while ((noBytes=read(fd, dataToSend, 1024)) > 0)
+						write (clients[n], dataToSend, noBytes);
+				}
+				// FILE NOT FOUND
+				else
+					write(clients[n], "HTTP/1.0 404 Not Found\n", 23);
+			}
+		}
+		else
+			write(clients[n],"HTTP/1.0 501 Not Implemented\n",30);
 	}
+	shutdown (clients[n], SHUT_RDWR);         //All further send and recieve operations are DISABLED...
+	close(clients[n]);
+	clients[n]=-1;
 }
 
 int main(int argc, char * argv [])
@@ -135,7 +136,7 @@ int main(int argc, char * argv [])
 
 	char portNum [6];
 	// Set the default port number to 10000
-	strcpy(portNum,"10025");
+	strcpy(portNum,"10026");
 
 	/* Parsing the command line arguments */
 	char arg;
@@ -170,14 +171,12 @@ int main(int argc, char * argv [])
 			error ("accept() error");
 		else
 		{
-			respondToRequest(currentSlot);
-//			if ( fork()==0 )
-//			{
-//				respondToRequest(currentSlot);
-//				exit(0);
-//			}
+			if ( fork()==0 )
+			{
+				respondToRequest(currentSlot);
+				exit(0);
+			}
 		}
-
 		// The currentSlot increment shouldn't increase more than the maximum allowed connections
 		while (clients[currentSlot]!=-1)
 			currentSlot = (currentSlot+1)%MAX_CONNECTIONS;
